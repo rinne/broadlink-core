@@ -1,7 +1,9 @@
 'use strict';
 
-const ipaddr = require('ipaddr.js');
+const os = require('os');
 const dgram = require('dgram');
+
+const ipaddr = require('ipaddr.js');
 
 async function sock(bindAddress) {
 	return new Promise(function(resolve, reject) {
@@ -17,7 +19,7 @@ async function sock(bindAddress) {
 		}
 		s.on('listening', listening);
 		s.on('error', error);
-		s.bind(bindAddress ? bindAddress : undefined);
+		s.bind(null, bindAddress ? bindAddress : undefined);
 	});
 };
 
@@ -75,9 +77,40 @@ function probe(localAddr, localPort) {
 	return p;
 }
 
+function findBroadcastAddresses(localIpOrNicName) {
+	var nic = os.networkInterfaces(), r;
+	if (nic[localIpOrNicName]) {
+		nic[localIpOrNicName].some(function(a) {
+			if ((a.family === 'IPv4') && (typeof(a.address) === 'string') && (typeof(a.cidr) === 'string')) {
+				r = { local: a.address, broadcast: ipaddr.IPv4.broadcastAddressFromCIDR(a.cidr).toString() };
+				return true;
+			}
+			return false;
+		});
+	} else if (ipaddr.IPv4.isValid(localIpOrNicName)) {
+		Object.keys(nic).some(function(n) {
+			var x = nic[n].some(function(a) {
+				if ((a.family === 'IPv4') && (a.address === localIpOrNicName) && (typeof(a.cidr) === 'string')) {
+					r = { local: a.address, broadcast: ipaddr.IPv4.broadcastAddressFromCIDR(a.cidr).toString() };
+					return true;
+				}
+				return false;
+			});
+			return x;
+		});
+	} else {
+		throw new Error('Valid IP address or existing NIC name required');
+	}
+	if (r) {
+		return r;
+	}
+	throw new Error('Unable to find matching local address');
+}
+
 module.exports = {
 	sock: sock,
 	date: date,
 	checksum: checksum,
 	probe: probe,
+	findBroadcastAddresses: findBroadcastAddresses
 };

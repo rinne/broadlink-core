@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 //const hexl = require('hexl');
 const TextDecoder = require('util').TextDecoder;
+const ipaddr = require('ipaddr.js');
 
 const devType = require('./devtype.js');
 const u = require('./util.js');
@@ -10,7 +11,7 @@ const u = require('./util.js');
 var BroadlinkSwitch = function() {
 	this.op = new Map();
 	this.message = function(data, raddr) {
-		if (! ((raddr.address === this.addr) && (raddr.port === this.port))) {
+		if (! ((raddr.address === this.address) && (raddr.port === this.port))) {
 			return;
 		}
 		let p = this.unwrap(data);
@@ -68,7 +69,7 @@ BroadlinkSwitch.prototype.call = async function(cmd, data, timeoutMs) {
 					completed: false,
 					timeout: timeout };
 		this.op.set(counter, ctx);
-		this.s.sendto(payload, 0, payload.length, this.port, this.addr);
+		this.s.sendto(payload, 0, payload.length, this.port, this.address);
 	}.bind(this));
 };
 
@@ -173,9 +174,10 @@ BroadlinkSwitch.prototype.unwrap = function(d) {
 };
 
 async function broadlinkProbe(ip, timeoutMs, localIp) {
-	var port = 80;
+	var port = 80, broadcast;
 	var timestamp = Date.now();
 	var dev;
+
 	return (Promise.resolve()
 			.then(function() {
 				if (timeoutMs) {
@@ -185,10 +187,27 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 				} else {
 					timeoutMs = 10000;
 				}
+				if ((! ip) || (['0.0.0.0', '0.0.0.0/0', '255.255.255.255', '255.255.255/0'].indexOf(ip) >= 0)) {
+					if (! localIp) {
+						throw new Error('Broadcast requires local address or interface name');
+					}
+					let ba =  u.findBroadcastAddresses(localIp);
+					ip = ba.broadcast;
+					localIp = ba.local;
+					broadcast = [];
+				} else {
+					ipaddr.IPv4.parse(ip);
+					if (localIp) {
+						localIp = u.findBroadcastAddresses(localIp).local;
+					}
+				}
 				return u.sock(localIp ? localIp : undefined);
 			})
 			.then(function(ret) {
 				var s = ret;
+				if (broadcast) {
+					s.setBroadcast(true);
+				}
 				return new Promise(function(resolve, reject) {
 					let completed = false;
 					let timeout, o, p;
@@ -201,6 +220,9 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						timeout = undefined;
 						if (completed) {
 							return;
+						}
+						if (broadcast) {
+							return resolve();
 						}
 						error(new Error('Timeout'));
 					}
@@ -226,7 +248,7 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						if (completed) {
 							return;
 						}
-						if (! ((raddr.address === ip) && (raddr.port === port))) {
+						if (! (((raddr.address === ip) || broadcast) && (raddr.port === port))) {
 							return;
 						}
 						if (! (d.length == 128)) {
@@ -249,9 +271,15 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						dev = new BroadlinkSwitch();
 						dev.uid = 'switch.broadlink.' + mac.toString('hex');
 						dev.name = 'Unknown ' + di.devType;
-						dev.addr = ip;
+						dev.address = raddr.address;
 						dev.port = raddr.port;
 						dev.mac = mac;
+						dev = Object.assign(dev, di);
+						if (broadcast) {
+							delete dev.message;
+							broadcast.push(dev);
+							return;
+						}
 						dev.id = Buffer.alloc(4);
 						dev.key = Buffer.from([0x09, 0x76, 0x28, 0x34, 0x3f, 0xe9, 0x9e, 0x23,
 											   0x76, 0x5c, 0x15, 0x13, 0xac, 0xcf, 0x8b, 0x02]),
@@ -269,7 +297,6 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 							dev.name = name;
 						} catch(ignored) {
 						}
-						dev = Object.assign(dev, di);
 						if (timeout) {
 							clearTimeout(timeout);
 							timeout = undefined;
@@ -287,6 +314,9 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 				});
 			})
 			.then(function() {
+				if (broadcast) {
+					return;
+				}
 				let o, p;
 				p = Buffer.alloc(80);
 				o = 4;
@@ -318,6 +348,9 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 				return dev.call(0x65, p, timeoutMs);
 			})
 			.then(function(ret) {
+				if (broadcast) {
+					return broadcast;
+				}
 				if (! dev.keySet) {
 					throw new Error('Key setup failure');
 				}

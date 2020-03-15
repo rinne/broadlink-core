@@ -4,7 +4,9 @@
 	"description": "Connection library to Broadlink SP WiFi-connected switches",
 	"main": "index.js",
 	"dependencies": {
-		"ipaddr.js": "^1.9.1"
+		"hexl": "^1.0.1",
+		"ipaddr.js": "^1.9.1",
+		"optist": "^1.0.6"
 	},
 	"scripts": {
 		"test": "node ./test/test.js"
