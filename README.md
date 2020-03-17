@@ -51,3 +51,10 @@ License
 =======
 
 MIT
+
+
+Acknowledgements
+================
+
+- Thanks to Ipsum Domus (https://blog.ipsumdomus.com/) for reverse
+  engineering of the protocol.
