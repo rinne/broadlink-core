@@ -289,9 +289,11 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						dev.keySet = 0;
 						try {
 							let name = d.slice(64, 124);
-							while ((name.length > 0) && (name[name.length - 1] <= 32)) {
-								name = name.slice(0, -1);
+							let end = 0;
+							while ((end < name.length) && (name[end] != 0)) {
+								end++;
 							}
+							name = name.slice(0, end);
 							let td = new TextDecoder('utf8', { fatal: true });
 							name = td.decode(name);
 							dev.name = name;
