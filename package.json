@@ -1,6 +1,6 @@
 {
 	"name": "broadlink-core",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"description": "Connection library to Broadlink SP WiFi-connected switches",
 	"main": "index.js",
 	"dependencies": {
