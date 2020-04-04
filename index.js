@@ -269,7 +269,7 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						}
 						let mac = Buffer.from([ d[63], d[62], d[61], d[60], d[59], d[58] ]);
 						dev = new BroadlinkSwitch();
-						dev.uid = 'switch.broadlink.' + mac.toString('hex');
+						dev.uid = 'broadlink.' + di.devClass + '.' + mac.toString('hex');
 						dev.name = 'Unknown ' + di.devType;
 						dev.address = raddr.address;
 						dev.port = raddr.port;
