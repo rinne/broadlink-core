@@ -19,7 +19,7 @@ function devType(typeId) {
 		r = { devClass: 'sp2', devType: 'Broadlink SP-Mini' };
 		break;
     case 0x7547:
-		r = { devClass: 'sp2', devType: 'Broadlink SC1' };
+		r = { devClass: 'sc1', devType: 'Broadlink SC1' };
 		break;
 	case 0x753e:
 		r = { devClass: 'sp3', devType: 'Broadlink SP3' };

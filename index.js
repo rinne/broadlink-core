@@ -269,7 +269,7 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						}
 						let mac = Buffer.from([ d[63], d[62], d[61], d[60], d[59], d[58] ]);
 						dev = new BroadlinkSwitch();
-						dev.uid = 'switch.broadlink.' + mac.toString('hex');
+						dev.uid = 'broadlink.' + di.devClass + '.' + mac.toString('hex');
 						dev.name = 'Unknown ' + di.devType;
 						dev.address = raddr.address;
 						dev.port = raddr.port;
@@ -281,11 +281,12 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 							return;
 						}
 						dev.id = Buffer.alloc(4);
-						dev.key = Buffer.from([0x09, 0x76, 0x28, 0x34, 0x3f, 0xe9, 0x9e, 0x23,
-											   0x76, 0x5c, 0x15, 0x13, 0xac, 0xcf, 0x8b, 0x02]),
-						dev.iv = Buffer.from([0x56, 0x2e, 0x17, 0x99, 0x6d, 0x09, 0x3d, 0x28,
-											  0xdd, 0xb3, 0xba, 0x69, 0x5a, 0x2e, 0x6f, 0x58]),
-						dev.counter = Math.floor((Math.random() * 0x10000));
+						{
+							let dk = u.defaultKey();
+							dev.key = dk.key;
+							dev.iv = dk.iv;
+						}
+						dev.counter = u.rndInt(0x1000, 0xefff);
 						dev.keySet = 0;
 						try {
 							let name = d.slice(64, 124);

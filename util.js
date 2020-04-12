@@ -5,6 +5,10 @@ const dgram = require('dgram');
 
 const ipaddr = require('ipaddr.js');
 
+const RndGen = require('rndgen');
+const rndGen = new RndGen();
+const rndInt = function() { return rndGen.getInt.apply(rndGen, arguments); };
+
 async function sock(bindAddress) {
 	return new Promise(function(resolve, reject) {
 		var s = dgram.createSocket('udp4');
@@ -77,6 +81,13 @@ function probe(localAddr, localPort) {
 	return p;
 }
 
+function defaultKey() {
+	return { key: Buffer.from([0x09, 0x76, 0x28, 0x34, 0x3f, 0xe9, 0x9e, 0x23,
+							   0x76, 0x5c, 0x15, 0x13, 0xac, 0xcf, 0x8b, 0x02]),
+			 iv: Buffer.from([0x56, 0x2e, 0x17, 0x99, 0x6d, 0x09, 0x3d, 0x28,
+							  0xdd, 0xb3, 0xba, 0x69, 0x5a, 0x2e, 0x6f, 0x58]) };
+}
+
 function findBroadcastAddresses(localIpOrNicName) {
 	var nic = os.networkInterfaces(), r;
 	if (nic[localIpOrNicName]) {
@@ -112,5 +123,7 @@ module.exports = {
 	date: date,
 	checksum: checksum,
 	probe: probe,
-	findBroadcastAddresses: findBroadcastAddresses
+	findBroadcastAddresses: findBroadcastAddresses,
+	rndInt: rndInt,
+	defaultKey: defaultKey
 };
