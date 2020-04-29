@@ -49,6 +49,9 @@ function devType(typeId) {
 	case 0x7d00:
 		r = { devClass: 'sp3', devType: 'SP3 (OEM)' };
 		break;
+    case 0x6111:
+		r = { devClass: 'mcb1', devType: 'Broadlink MCB1' };
+		break;
 	default:
 		break;
 	}

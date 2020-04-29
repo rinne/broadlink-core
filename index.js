@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-//const hexl = require('hexl');
+const hexl = require('hexl');
 const TextDecoder = require('util').TextDecoder;
 const ipaddr = require('ipaddr.js');
 
@@ -11,11 +11,15 @@ const u = require('./util.js');
 var BroadlinkSwitch = function() {
 	this.op = new Map();
 	this.message = function(data, raddr) {
+		hexl.log(data, "real recv:\n" + JSON.stringify(raddr, null, 2));
 		if (! ((raddr.address === this.address) && (raddr.port === this.port))) {
 			return;
 		}
 		let p = this.unwrap(data);
-		if (p.status !== 'ok') {
+		if (p instanceof Error) {
+			console.log('<<<');
+			console.log(p);
+			console.log('>>>');
 			return;
 		}
 		let op = this.op.get(p.counter);
@@ -28,6 +32,14 @@ var BroadlinkSwitch = function() {
 			op.timeout = null;
 		}
 		op.completed = true;
+		if (p.status !== 'ok') {
+			console.log('<<<');
+			console.log(p);
+			console.log('>>>');
+			let e = new Error('Error response 0x' + p.command.toString(16) + '.');
+			console.log(e);
+			return op.reject(e);
+		}
 		return op.resolve(p);
 	}.bind(this);
 };
@@ -69,9 +81,18 @@ BroadlinkSwitch.prototype.call = async function(cmd, data, timeoutMs) {
 					completed: false,
 					timeout: timeout };
 		this.op.set(counter, ctx);
-		this.s.sendto(payload, 0, payload.length, this.port, this.address);
+		this.payloadSend(payload);
 	}.bind(this));
 };
+
+BroadlinkSwitch.prototype.payloadSend = function(payload) {
+	if (! this.s) {
+		throw Error('Socket is closed');
+	}
+	hexl.log(payload, "send:\n" + JSON.stringify(this.address, null, 2));
+	this.s.sendto(payload, 0, payload.length, this.port, this.address);
+	return true;
+}
 
 BroadlinkSwitch.prototype.close = function() {
 	if (! this.s) {
@@ -95,9 +116,15 @@ BroadlinkSwitch.prototype.wrap = function(cmd, d) {
 	if ((this.counter < 1) || (this.counter > 0xffff)) {
 		this.counter = 1;
 	}
-	let o, p = Buffer.alloc(56);
+	let privatePacket = false, crc, p, o;
 	o = 0;
-    p[o++] = 0x5a;
+	if (privatePacket) {
+		p = Buffer.alloc(40);
+		p[o++] = 0x00;
+	} else {
+		p = Buffer.alloc(56);
+		p[o++] = 0x5a;
+	}
 	p[o++] = 0xa5;
 	p[o++] = 0xaa;
 	p[o++] = 0x55;
@@ -106,25 +133,32 @@ BroadlinkSwitch.prototype.wrap = function(cmd, d) {
 	p[o++] = 0xaa;
 	p[o++] = 0x55;
 	o = 36;
+/*
 	p[o++] = 0x2a;
 	p[o++] = 0x27;
+*/
+	p[o++] = this.devTypeId & 0xff;
+	p[o++] = this.devTypeId >> 8;
 	p[o++] = cmd & 0xff;
 	p[o++] = cmd >> 8;
-	p[o++] = this.counter & 0xff;
-	p[o++] = this.counter >> 8;
-	this.mac.copy(p, o);
-	o += 6;
-	this.id.copy(p, o);
-	let crc = u.checksum(d, 0xbeaf);
-	o = 52;
-    p[o++] = crc & 0xff;
-	p[o++] = crc >> 8;
+	if (privatePacket) {
+	} else {
+		p[o++] = this.counter & 0xff;
+		p[o++] = this.counter >> 8;
+		this.mac.copy(p, o);
+		o += 6;
+		this.id.copy(p, o);
+		crc = u.checksum(d, 0xbeaf);
+		o = 52;
+		p[o++] = crc & 0xff;
+		p[o++] = crc >> 8;
+	}
 	let cipher = crypto.createCipheriv('aes-128-cbc', this.key, this.iv);
 	cipher.setAutoPadding(false);
 	p = Buffer.concat( [ p, cipher.update(d), cipher.final() ] );
 	crc = u.checksum(p, 0xbeaf);
 	o = 32;
-    p[o++] = crc & 0xff;
+	p[o++] = crc & 0xff;
 	p[o++] = crc >> 8;
 	return p;
 };
@@ -133,8 +167,22 @@ BroadlinkSwitch.prototype.unwrap = function(d) {
 	function err(e) {
 		return { status: 'error', error: e };
 	}
-	if (! ((d.length >= 56) && ((d.length - 56) % 16) == 0)) {
-		return err(new Error('Truncated message'));
+	let privatePacket;
+	switch ((d.length > 0) ? d[0] : -1) {
+	case 0:
+		privatePacket = true;
+		if (! ((d.length >= 40) && ((d.length - 40) % 16) == 0)) {
+			return err(new Error('Truncated message'));
+		}
+		break;
+	case 0x5a:
+		privatePacket = false;
+		if (! ((d.length >= 56) && ((d.length - 56) % 16) == 0)) {
+			return err(new Error('Truncated message'));
+		}
+		break;
+	default:
+		return err(new Error('Malformatted message identifier byte'));
 	}
 	let crc = d.readUInt16LE(32);
     d[32] = 0;
@@ -144,32 +192,43 @@ BroadlinkSwitch.prototype.unwrap = function(d) {
 	}
 	let decipher = crypto.createDecipheriv('aes-128-cbc', this.key, this.iv);
 	decipher.setAutoPadding(false);
-	let p = Buffer.concat( [ decipher.update(d.slice(56)), decipher.final() ] );
-	crc = d.readUInt16LE(52);
-	if (crc != u.checksum(p, 0xbeaf)) {
-		return err(new Error('CRC mismatch in inner envelope checksum'));
+	let p = Buffer.concat( [ decipher.update(d.slice((privatePacket ? 40 : 56))), decipher.final() ] );
+	if (! privatePacket) {
+		crc = d.readUInt16LE(52);
+		if (crc != u.checksum(p, 0xbeaf)) {
+			return err(new Error('CRC mismatch in inner envelope checksum'));
+		}
+		if (this.mac.compare(d, 42, 48)) {
+			return err(new Error('MAC address mismatch in message header'));
+		}
+		if (this.id.compare(d, 48, 52)) {
+			return err(new Error('Device ID mismatch in message header'));
+		}
 	}
-	if (this.mac.compare(d, 42, 48)) {
-		return err(new Error('MAC address mismatch in message header'));
-	}
-	if (this.id.compare(d, 48, 52)) {
-		return err(new Error('Device ID mismatch in message header'));
-	}
-	let errorCode = d.readUInt16LE(34);
+	let errorCode = d.readInt16LE(34);
 	let cmd = d.readUInt16LE(38);
 	let ctr = d.readUInt16LE(40);
-	if (cmd == 0x3e9) {
+	if ((errorCode == 0) && (cmd == 0x3e9)) {
 		if (p.length < 20) {
-			return err(new Error('Truncated key update payload'));
+			return err(new Error('Truncated key update payload (' + p.length + ' bytes)'));
+		} else {
+			this.id = p.slice(0, 4);
+			this.key = p.slice(4, 20);
 		}
-		this.id = p.slice(0, 4);
-		this.key = p.slice(4, 20);
 		this.keySet++;
+		console.log('new keys:');
+		console.log(this);
 	}
 	let r = { status: ((errorCode == 0) ? 'ok' : 'error'), counter: ctr, command: cmd, error: errorCode };
-	//hexl.log(d, JSON.stringify(r, null, 2));
-	r.header = d.slice(0, 56);
+	r.header = d.slice(0, (privatePacket ? 40 : 56));
 	r.payload = p;
+	console.log(JSON.stringify({ status: r.status,
+								 counter: '0x' + r.counter.toString(16),
+								 command: '0x' + r.command.toString(16),
+								 error: r.error },
+							   null, 2));
+	hexl.log(r.header, "header:\n");
+	hexl.log(r.payload, "payload:\n");
 	return r;
 };
 
@@ -244,11 +303,12 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						return reject(e);
 					}
 					function message(d, raddr) {
-						//hexl.log(d, "recv:\n" + JSON.stringify(raddr, null, 2));
+						hexl.log(d, "recv:\n" + JSON.stringify(raddr, null, 2));
 						if (completed) {
 							return;
 						}
 						if (! (((raddr.address === ip) || broadcast) && (raddr.port === port))) {
+							console.error('packet from unexpected source');
 							return;
 						}
 						if (! (d.length == 128)) {
@@ -258,6 +318,7 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						d[32] = 0;
 						d[33] = 0;
 						if (crc != u.checksum(d, 0xbeaf)) {
+							console.error('checksum error');
 							return;
 						}
 						let id = d.readUInt16LE(52);
@@ -300,6 +361,7 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 							dev.name = name;
 						} catch(ignored) {
 						}
+						console.log(dev);
 						if (timeout) {
 							clearTimeout(timeout);
 							timeout = undefined;
@@ -323,27 +385,14 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 				let o, p;
 				p = Buffer.alloc(80);
 				o = 4;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
-				p[o++] = 0x31;
+				dev.outKey = crypto.randomBytes(16);
+				dev.outKey.copy(p, o);
 				o = 30;
-				p[o++] = 0x01;
+				//p[o++] = 0x01;
 				o = 45;
 				p[o++] = 0x01;
 				o = 48;
-				p.write('Test  1', o);
+				p.write('Broadlink Hub', o);
 				timeoutMs -= (Date.now() - timestamp);
 				if (timeoutMs < 1) {
 					throw new Error('Timeout');
