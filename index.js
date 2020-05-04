@@ -11,15 +11,11 @@ const u = require('./util.js');
 var BroadlinkSwitch = function() {
 	this.op = new Map();
 	this.message = function(data, raddr) {
-		hexl.log(data, "real recv:\n" + JSON.stringify(raddr, null, 2));
 		if (! ((raddr.address === this.address) && (raddr.port === this.port))) {
 			return;
 		}
 		let p = this.unwrap(data);
 		if (p instanceof Error) {
-			console.log('<<<');
-			console.log(p);
-			console.log('>>>');
 			return;
 		}
 		let op = this.op.get(p.counter);
@@ -33,11 +29,7 @@ var BroadlinkSwitch = function() {
 		}
 		op.completed = true;
 		if (p.status !== 'ok') {
-			console.log('<<<');
-			console.log(p);
-			console.log('>>>');
 			let e = new Error('Error response 0x' + p.command.toString(16) + '.');
-			console.log(e);
 			return op.reject(e);
 		}
 		return op.resolve(p);
@@ -89,7 +81,6 @@ BroadlinkSwitch.prototype.payloadSend = function(payload) {
 	if (! this.s) {
 		throw Error('Socket is closed');
 	}
-	hexl.log(payload, "send:\n" + JSON.stringify(this.address, null, 2));
 	this.s.sendto(payload, 0, payload.length, this.port, this.address);
 	return true;
 }
@@ -216,19 +207,10 @@ BroadlinkSwitch.prototype.unwrap = function(d) {
 			this.key = p.slice(4, 20);
 		}
 		this.keySet++;
-		console.log('new keys:');
-		console.log(this);
 	}
 	let r = { status: ((errorCode == 0) ? 'ok' : 'error'), counter: ctr, command: cmd, error: errorCode };
 	r.header = d.slice(0, (privatePacket ? 40 : 56));
 	r.payload = p;
-	console.log(JSON.stringify({ status: r.status,
-								 counter: '0x' + r.counter.toString(16),
-								 command: '0x' + r.command.toString(16),
-								 error: r.error },
-							   null, 2));
-	hexl.log(r.header, "header:\n");
-	hexl.log(r.payload, "payload:\n");
 	return r;
 };
 
@@ -303,12 +285,11 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						return reject(e);
 					}
 					function message(d, raddr) {
-						hexl.log(d, "recv:\n" + JSON.stringify(raddr, null, 2));
 						if (completed) {
 							return;
 						}
 						if (! (((raddr.address === ip) || broadcast) && (raddr.port === port))) {
-							console.error('packet from unexpected source');
+							//console.error('packet from unexpected source');
 							return;
 						}
 						if (! (d.length == 128)) {
@@ -318,7 +299,7 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 						d[32] = 0;
 						d[33] = 0;
 						if (crc != u.checksum(d, 0xbeaf)) {
-							console.error('checksum error');
+							//console.error('checksum error');
 							return;
 						}
 						let id = d.readUInt16LE(52);
@@ -361,7 +342,6 @@ async function broadlinkProbe(ip, timeoutMs, localIp) {
 							dev.name = name;
 						} catch(ignored) {
 						}
-						console.log(dev);
 						if (timeout) {
 							clearTimeout(timeout);
 							timeout = undefined;
