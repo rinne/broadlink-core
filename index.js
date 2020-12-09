@@ -146,7 +146,10 @@ BroadlinkSwitch.prototype.wrap = function(cmd, d) {
 	}
 	let cipher = crypto.createCipheriv('aes-128-cbc', this.key, this.iv);
 	cipher.setAutoPadding(false);
-	p = Buffer.concat( [ p, cipher.update(d), cipher.final() ] );
+	p = Buffer.concat( [ p,
+						 cipher.update(d),
+						 cipher.update(Buffer.alloc((16 - (d.length % 16)) % 16)),
+						 cipher.final() ] );
 	crc = u.checksum(p, 0xbeaf);
 	o = 32;
 	p[o++] = crc & 0xff;
